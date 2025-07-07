@@ -1,0 +1,65 @@
+name: CI - Test & Coverage
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: testdb
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+      memcached:
+        image: memcached:latest
+        ports:
+          - 11211:11211
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.1'
+        extensions: mbstring, pdo, pdo_mysql, memcached, xdebug
+        coverage: xdebug
+
+    - name: Install Composer dependencies
+      run: composer install --prefer-dist --no-progress
+
+    - name: Run PHPUnit with coverage
+      run: |
+        vendor/bin/phpunit --coverage-clover=coverage.xml
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        token: f00290b2-e08e-4aa9-b016-16f548784a66
+        files: coverage.xml
+        fail_ci_if_error: true
+        verbose: true
+
+    - name: Enforce 75% min coverage
+      run: |
+        COVERAGE=$(grep -Po 'line-rate="\K[0-9.]+' coverage.xml)
+        PERCENT=$(echo "$COVERAGE * 100" | bc)
+        echo "Coverage: $PERCENT%"
+        MIN=75
+        RESULT=$(echo "$PERCENT < $MIN" | bc)
+        if [ "$RESULT" -eq 1 ]; then
+          echo "Coverage too low ($PERCENT%). Minimum is $MIN%."
+          exit 1
+        fi
